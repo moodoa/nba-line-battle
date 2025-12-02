@@ -3,7 +3,7 @@ import requests
 import os
 import openai
 import json
-import asyncio
+import threading
 
 app = FastAPI()
 
@@ -11,7 +11,6 @@ app = FastAPI()
 CHANNEL_ACCESS_TOKEN = os.getenv("LINE_TOKEN")
 CHANNEL_SECRET = os.getenv("LINE_SECRET")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
 openai.api_key = OPENAI_API_KEY
 
 BEST_TEAM_FILE = "best_team.json"
@@ -24,7 +23,6 @@ INITIAL_BEST_TEAM = [
     "hakeem olajuwon"
 ]
 
-# 初始化 JSON
 if not os.path.exists(BEST_TEAM_FILE):
     with open(BEST_TEAM_FILE, "w") as f:
         json.dump(INITIAL_BEST_TEAM, f)
@@ -49,7 +47,7 @@ def push_message(user_id, text):
     }
     requests.post(url, headers=headers, json=body)
 
-async def simulate_and_reply(user_text, user_id):
+def simulate_and_reply(user_text, user_id):
     best_team = get_best_team()
     best_team_str = "\n".join(best_team)
 
@@ -73,7 +71,7 @@ async def simulate_and_reply(user_text, user_id):
 """
 
     try:
-        response = await openai.chat.completions.acreate(
+        response = openai.chat.completions.create(
             model="gpt-5.1-mini",
             messages=[{"role": "user", "content": prompt}]
         )
@@ -105,8 +103,8 @@ async def callback(request: Request):
     user_id = event["source"]["userId"]
     user_text = event["message"]["text"]
 
-    # 非阻塞啟動背景任務
-    asyncio.create_task(simulate_and_reply(user_text, user_id))
+    # 永久線程背景執行
+    threading.Thread(target=simulate_and_reply, args=(user_text, user_id)).start()
 
-    # 立即回 200 OK，避免 LINE timeout
+    # 立即回 200 OK 避免 LINE timeout
     return "OK"
