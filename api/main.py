@@ -97,14 +97,13 @@ def simulate_and_reply(user_text, user_id):
 
 @app.post("/callback")
 async def callback(request: Request):
-    body = await request.json()
-    event = body["events"][0]
+    try:
+        body = await request.json()
+        event = body["events"][0]
+        user_id = event["source"]["userId"]
+        user_text = event["message"]["text"]
+        threading.Thread(target=simulate_and_reply, args=(user_text, user_id)).start()
+    except Exception as e:
+        print(f"Callback error: {e}")
+    return {"status": "ok"}
 
-    user_id = event["source"]["userId"]
-    user_text = event["message"]["text"]
-
-    # 永久線程背景執行
-    threading.Thread(target=simulate_and_reply, args=(user_text, user_id)).start()
-
-    # 立即回 200 OK 避免 LINE timeout
-    return "OK"
