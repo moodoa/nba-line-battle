@@ -1,9 +1,9 @@
 from fastapi import FastAPI, Request
-import uvicorn
 import requests
 import os
 import openai
 import json
+import threading
 
 app = FastAPI()
 
@@ -19,11 +19,11 @@ BEST_TEAM_FILE = "best_team.json"
 
 # 初始最強隊伍
 INITIAL_BEST_TEAM = [
-    "Michael Jordan",
-    "Scottie Pippen",
-    "Dennis Rodman",
-    "Jrue Holiday",
-    "Steve Novak"
+    "stephen curry",
+    "ray allen",
+    "cooper flagg",
+    "amen thompson",
+    "hakeem olajuwon"
 ]
 
 # 檢查或建立 JSON
@@ -39,25 +39,19 @@ def update_best_team(new_team):
     with open(BEST_TEAM_FILE, "w") as f:
         json.dump(new_team, f)
 
-def reply(reply_token, text):
-    url = "https://api.line.me/v2/bot/message/reply"
+def push_message(user_id, text):
+    url = "https://api.line.me/v2/bot/message/push"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"
     }
     body = {
-        "replyToken": reply_token,
+        "to": user_id,
         "messages": [{"type": "text", "text": text}]
     }
     requests.post(url, headers=headers, json=body)
 
-@app.post("/callback")
-async def callback(request: Request):
-    body = await request.json()
-    event = body["events"][0]
-    reply_token = event["replyToken"]
-    user_text = event["message"]["text"]
-
+def simulate_and_reply(user_text, user_id):
     # 取得目前最強隊伍
     best_team = get_best_team()
     best_team_str = "\n".join(best_team)
@@ -91,7 +85,6 @@ async def callback(request: Request):
 
     # 嘗試抓取挑戰者勝利並更新最強隊伍
     try:
-        # 找 JSON 陣列在最後一行
         lines = result.strip().split("\n")
         last_line = lines[-1].strip()
         if last_line.startswith("[") and last_line.endswith("]"):
@@ -100,8 +93,23 @@ async def callback(request: Request):
             reply_text = "\n".join(lines[:-1]) + "\n\n🏆 挑戰者已成為新最強隊伍！"
         else:
             reply_text = result
-    except Exception as e:
+    except Exception:
         reply_text = result
 
-    reply(reply_token, reply_text)
+    # 用 Push Message 發送結果
+    push_message(user_id, reply_text)
+
+@app.post("/callback")
+async def callback(request: Request):
+    body = await request.json()
+    event = body["events"][0]
+
+    # LINE 事件資訊
+    user_id = event["source"]["userId"]
+    user_text = event["message"]["text"]
+
+    # 在背景執行模擬，不阻塞 Webhook
+    threading.Thread(target=simulate_and_reply, args=(user_text, user_id)).start()
+
+    # 立即回 200 OK，避免 LINE timeout
     return "OK"
