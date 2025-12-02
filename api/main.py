@@ -72,7 +72,7 @@ def simulate_and_reply(user_text, user_id):
 
     try:
         response = openai.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}]
         )
         result = response.choices[0].message["content"]
