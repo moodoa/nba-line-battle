@@ -3,7 +3,7 @@ import requests
 import os
 import openai
 import json
-import threading
+import asyncio
 
 app = FastAPI()
 
@@ -14,10 +14,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 openai.api_key = OPENAI_API_KEY
 
-# JSON 檔保存最強隊伍
 BEST_TEAM_FILE = "best_team.json"
 
-# 初始最強隊伍
 INITIAL_BEST_TEAM = [
     "stephen curry",
     "ray allen",
@@ -26,7 +24,7 @@ INITIAL_BEST_TEAM = [
     "hakeem olajuwon"
 ]
 
-# 檢查或建立 JSON
+# 初始化 JSON
 if not os.path.exists(BEST_TEAM_FILE):
     with open(BEST_TEAM_FILE, "w") as f:
         json.dump(INITIAL_BEST_TEAM, f)
@@ -51,12 +49,10 @@ def push_message(user_id, text):
     }
     requests.post(url, headers=headers, json=body)
 
-def simulate_and_reply(user_text, user_id):
-    # 取得目前最強隊伍
+async def simulate_and_reply(user_text, user_id):
     best_team = get_best_team()
     best_team_str = "\n".join(best_team)
 
-    # 準備 OpenAI prompt
     prompt = f"""
 你現在是 NBA 模擬引擎。所有球員皆為巔峰。
 規則：每隊最多 3 個全明星。若使用者的球隊違規，請回報並拒絕模擬。
@@ -76,14 +72,16 @@ def simulate_and_reply(user_text, user_id):
 6. 請簡潔輸出適合 LINE 的格式。
 """
 
-    response = openai.chat.completions.create(
-        model="gpt-5.1-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
+    try:
+        response = await openai.chat.completions.acreate(
+            model="gpt-5.1-mini",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        result = response.choices[0].message["content"]
+    except Exception as e:
+        result = f"模擬出錯: {e}"
 
-    result = response.choices[0].message["content"]
-
-    # 嘗試抓取挑戰者勝利並更新最強隊伍
+    # 嘗試更新最強隊伍
     try:
         lines = result.strip().split("\n")
         last_line = lines[-1].strip()
@@ -96,7 +94,7 @@ def simulate_and_reply(user_text, user_id):
     except Exception:
         reply_text = result
 
-    # 用 Push Message 發送結果
+    # Push Message 回覆
     push_message(user_id, reply_text)
 
 @app.post("/callback")
@@ -104,12 +102,11 @@ async def callback(request: Request):
     body = await request.json()
     event = body["events"][0]
 
-    # LINE 事件資訊
     user_id = event["source"]["userId"]
     user_text = event["message"]["text"]
 
-    # 在背景執行模擬，不阻塞 Webhook
-    threading.Thread(target=simulate_and_reply, args=(user_text, user_id)).start()
+    # 非阻塞啟動背景任務
+    asyncio.create_task(simulate_and_reply(user_text, user_id))
 
     # 立即回 200 OK，避免 LINE timeout
     return "OK"
